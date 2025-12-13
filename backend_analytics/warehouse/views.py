@@ -2,11 +2,50 @@ from django.db import connection
 from django.shortcuts import render
 from django.views import View
 from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 
 
 # Create your views here.
+class LargeResultsSetPagination(PageNumberPagination):
+    page_size = 1000        # number of records per page
+    page_size_query_param = 'page_size'
+    max_page_size = 5000
+
+class GenerateAllRecordsForTransactions(ViewSet):
+    pagination_class = LargeResultsSetPagination
+
+    @action(detail=False, methods=['get'], url_path='transactions')
+    def all_records(self, request):
+        with connection.cursor() as cursor:
+            cursor.execute('''select 
+                                "Customer ID" AS customer_id,
+                                "First Name" AS first_name,
+                                "Last Name" AS last_name,
+                                "Age" AS age,
+                                "Gender" AS gender,
+                                "Email" AS email,
+                                "Account Type" AS account_type,
+                                "Account Balance" AS account_balance,
+                                "Date Of Account Opening" AS date_of_account_opening,
+                                "TransactionID" AS transaction_id,
+                                "Transaction Type" AS transaction_type,
+                                "Transaction Date" AS transaction_date,
+                                "Transaction Amount" AS transaction_amount,
+                                "Account Balance After Transaction" AS account_balance_after_transaction,
+                                "Branch ID" AS branch_id,
+                                "Loan ID" AS loan_id
+                           from warehouse''')
+            columns = [col[0] for col in cursor.description]
+            records = [dict(zip(columns,row)) for row in cursor.fetchall()]
+
+        # paginate
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(records, request)
+        return paginator.get_paginated_response(records)
+
+# loans disbursed by the branch
 class WarehouseAnalyticsViewSet(ViewSet):
 
     @action(detail=False, methods=['get'], url_path='loans-by-branch')
@@ -61,6 +100,9 @@ class ValidateTransactions(ViewSet):
             validated AS (
                 SELECT *,
                     CASE 
+                        WHEN account_balance_after_transaction IS NULL
+                            THEN 'VALID'
+                            
                         -- First transaction: use account_balance as base for validation
                         WHEN account_balance_before_transaction IS NULL
                             AND transaction_type = 'Deposit'

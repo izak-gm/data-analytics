@@ -16,5 +16,18 @@ engine = create_engine(DATABASE_URL)
 
 # load Data
 df=pd.read_csv("../data-lake/raw/Comprehensive_Banking_Database.csv")
-df.to_sql("warehouse", con=engine, if_exists="append", index=False)
+print(df.head())
+print(df.describe())
+print(df.info())
+
+print(len(df))
+
+
+# duplicates
+duplicates=df[df.duplicated(keep=False)]
+print(f"Duplicates: {len(duplicates)}")
+print(f"Found {duplicates.shape[0]} duplicate rows")
+print(duplicates)
+
+df.to_sql("warehouse", con=engine, if_exists="replace", index=False)
 print("ETL COMPLETED SUCCESSFULLY")
