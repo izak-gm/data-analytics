@@ -78,75 +78,89 @@ class ValidateTransactions(ViewSet):
     def validateTransactions(self, request):
         with connection.cursor() as cursor:
             cursor.execute('''
-            WITH orderedTransactions AS(
-                SELECT 
-                    "Customer ID" AS customer_id,
-                    "CardID" AS card_id,
-                    "TransactionID" AS transaction_id,
-                    "Transaction Type" AS transaction_type,
-                    "Transaction Date" AS transaction_date,
-                    "Transaction Amount" AS transaction_amount,
-                    -- Account Balance is account balance before transaction is made
-                    "Account Balance" AS account_balance, 
-                    -- Account balance after the transaction
-                    "Account Balance After Transaction" AS account_balance_after_transaction,
-                    LAG("Account Balance After Transaction")
-                        OVER (
-                            PARTITION BY "Customer ID", "Account Type"
-                            ORDER BY "Transaction Date", "TransactionID"
-                        ) AS account_balance_before_transaction
-                FROM warehouse
-            ),
-            validated AS (
-                SELECT *,
-                    CASE 
-                        WHEN account_balance_after_transaction IS NULL
-                            THEN 'VALID'
+                            WITH orderedTransactions AS (
+                                SELECT 
+                                    "Customer ID" AS customer_id,
+                                    "CardID" AS card_id,
+                                    "TransactionID" AS transaction_id,
+                                    "Transaction Type" AS transaction_type,
+                                    "Transaction Date" AS transaction_date,
+                                    "Transaction Amount" AS transaction_amount,
+                                    "Account Balance" AS account_balance, 
+                                    "Account Balance After Transaction" AS account_balance_after_transaction,
+                                    LAG("Account Balance After Transaction")
+                                        OVER (
+                                            PARTITION BY "Customer ID", "Account Type"
+                                            ORDER BY "Transaction Date", "TransactionID"
+                                        ) AS account_balance_before_transaction
+                                FROM warehouse
+                            ),
+                            validated AS (
+                                SELECT *,
+                                    -- Determine if transaction is valid or invalid
+                                    CASE
+                                        WHEN account_balance_after_transaction IS NULL THEN 'VALID'
+                                        WHEN account_balance_before_transaction IS NULL
+                                            AND transaction_type = 'Deposit'
+                                            AND account_balance_after_transaction = account_balance + transaction_amount
+                                            THEN 'VALID'
+                                        WHEN account_balance_before_transaction IS NULL
+                                            AND transaction_type = 'Withdrawal'
+                                            AND account_balance_after_transaction = account_balance - transaction_amount
+                                            THEN 'VALID'
+                                        WHEN account_balance_before_transaction IS NULL
+                                            AND transaction_type = 'Transfer'
+                                            AND account_balance_after_transaction = account_balance - transaction_amount
+                                            THEN 'VALID'
+                                        WHEN transaction_type = 'Deposit'
+                                            AND account_balance_after_transaction = account_balance_before_transaction + transaction_amount
+                                            THEN 'VALID'
+                                        WHEN transaction_type = 'Withdrawal'
+                                            AND account_balance_after_transaction = account_balance_before_transaction - transaction_amount
+                                            THEN 'VALID'
+                                        WHEN transaction_type = 'Transfer'
+                                            AND account_balance_after_transaction = account_balance_before_transaction - transaction_amount
+                                            THEN 'VALID'
+                                        ELSE 'INVALID'
+                                    END AS transaction_status,
                             
-                        -- First transaction: use account_balance as base for validation
-                        WHEN account_balance_before_transaction IS NULL
-                            AND transaction_type = 'Deposit'
-                            AND account_balance_after_transaction = account_balance + transaction_amount THEN 'VALID'
-                        WHEN account_balance_before_transaction IS NULL
-                            AND transaction_type = 'Withdrawal'
-                            AND account_balance_after_transaction = account_balance - transaction_amount THEN 'VALID'
-                        WHEN account_balance_before_transaction IS NULL
-                            AND transaction_type = 'Transfer'
-                            AND account_balance_after_transaction = account_balance - transaction_amount THEN 'VALID'
-                    
-                        -- Subsequent transactions
-                        WHEN transaction_type = 'Deposit'
-                            AND account_balance_after_transaction = account_balance_before_transaction + transaction_amount THEN 'VALID'
-                        WHEN transaction_type = 'Withdrawal'
-                            AND account_balance_after_transaction = account_balance_before_transaction - transaction_amount THEN 'VALID'
-                        WHEN transaction_type = 'Transfer'
-                            AND account_balance_after_transaction = account_balance_before_transaction - transaction_amount THEN 'VALID'
-                        
-                        ELSE 'INVALID'
-                    END AS transaction_status,
+                                    -- Determine a meaningful error_reason
+                                    CASE
+                                        WHEN account_balance_after_transaction IS NULL THEN NULL
+                                        WHEN account_balance_before_transaction IS NULL
+                                            AND transaction_type = 'Deposit'
+                                            AND account_balance_after_transaction IS DISTINCT FROM account_balance + transaction_amount
+                                            THEN 'Balance mismatch for first Deposit'
+                                        WHEN account_balance_before_transaction IS NULL
+                                            AND transaction_type = 'Withdrawal'
+                                            AND account_balance_after_transaction IS DISTINCT FROM account_balance - transaction_amount
+                                            THEN 'Balance mismatch for first Withdrawal'
+                                        WHEN account_balance_before_transaction IS NULL
+                                            AND transaction_type = 'Transfer'
+                                            AND account_balance_after_transaction IS DISTINCT FROM account_balance - transaction_amount
+                                            THEN 'Balance mismatch for first Transfer'
+                                        WHEN transaction_type = 'Deposit'
+                                            AND account_balance_after_transaction IS DISTINCT FROM account_balance_before_transaction + transaction_amount
+                                            THEN 'Balance mismatch for Deposit'
+                                        WHEN transaction_type = 'Withdrawal'
+                                            AND account_balance_after_transaction IS DISTINCT FROM account_balance_before_transaction - transaction_amount
+                                            THEN 'Balance mismatch for Withdrawal'
+                                        WHEN transaction_type = 'Transfer'
+                                            AND account_balance_after_transaction IS DISTINCT FROM account_balance_before_transaction - transaction_amount
+                                            THEN 'Balance mismatch for Transfer'
+                                        WHEN transaction_type NOT IN ('Deposit','Withdrawal','Transfer')
+                                            THEN 'Unknown transaction type'
+                                        ELSE NULL
+                                    END AS error_reason
+                                FROM orderedTransactions
+                            )
+                            SELECT *,
+                                COUNT(*) OVER () AS total_records,
+                                COUNT(*) FILTER (WHERE transaction_status = 'VALID') OVER () AS valid_records,
+                                COUNT(*) FILTER (WHERE transaction_status = 'INVALID') OVER () AS invalid_records
+                            FROM validated
+                            ORDER BY customer_id, card_id, transaction_id, transaction_date;
 
-                    CASE
-                        WHEN transaction_type = 'Deposit'
-                            AND account_balance_after_transaction <> account_balance_before_transaction + transaction_amount
-                            THEN 'Balance mismatch for credit'
-                        WHEN transaction_type = 'Withdrawal' 
-                            AND account_balance_after_transaction <> account_balance_before_transaction - transaction_amount
-                            THEN 'Balance mismatch for Withdrawal'
-                        WHEN transaction_type = 'Transfer' 
-                            AND account_balance_after_transaction <> account_balance_before_transaction - transaction_amount
-                            THEN 'Balance mismatch for Transfer'
-                        WHEN transaction_type NOT IN ('Deposit','Withdrawal','Transfer')
-                            THEN 'Unknown transaction type'
-                        ELSE 'Unclassified Validation error'
-                    END AS error_reason
-                FROM orderedTransactions
-            )
-            SELECT *,
-                COUNT(*) OVER () AS total_records,
-                COUNT(*) FILTER (WHERE transaction_status = 'VALID') OVER () AS valid_records,
-                COUNT(*) FILTER (WHERE transaction_status = 'INVALID') OVER () AS invalid_records
-            FROM validated
-            ORDER BY customer_id, card_id, transaction_id, transaction_date
             ''')
 
             columns = [col[0] for col in cursor.description]
