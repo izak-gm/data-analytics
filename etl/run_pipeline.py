@@ -17,6 +17,12 @@ def run_pipeline(csv_path: str):
 
     print("✅ ETL pipeline finished successfully!")
 
+    print("Data cleaned and Transformed by Izak")
+    print("Happy using the cleaned data? ")
+    print("Then show a smile!")
+
+
+
 if __name__ == "__main__":
     csv_file = BASE_DIR / "data-lake/raw/Comprehensive_Banking_Database.csv"
     run_pipeline(str(csv_file))  # <-- convert Path to string

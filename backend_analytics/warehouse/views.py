@@ -63,8 +63,32 @@ class WarehouseAnalyticsViewSet(ViewSet):
             data=[dict(zip(columns,row)) for row in cursor.fetchall()]
 
         return Response(data)
+class BranchPerformancePerTotals(ViewSet):
 
+    @action(detail=False, methods=['get'], url_path='records-by-branch')
+    def branch_performance_per_totals(self, request, pk=None):
+        with connection.cursor() as cursor:
+            cursor.execute('''
+                    SELECT
+                        "Branch ID" AS branch_id,
+                        EXTRACT(
+                            YEAR FROM TO_DATE("Transaction Date", 'MM/DD/YYYY')
+                        ) AS year,
+                        SUM("Transaction Amount") AS branch_yearly_total,
+                        SUM(SUM("Transaction Amount")) OVER (
+                            PARTITION BY EXTRACT(
+                                YEAR FROM TO_DATE("Transaction Date", 'MM/DD/YYYY')
+                            )
+                        ) AS yearly_total_transaction_amount
+                    FROM warehouse
+                    GROUP BY branch_id, year
+                    ORDER BY year, branch_yearly_total DESC;
 
+            ''')
+            columns = [col[0] for col in cursor.description]
+            data = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+        return Response(data)
 class ValidateTransactions(ViewSet):
     """
        Returns all transactions with:
