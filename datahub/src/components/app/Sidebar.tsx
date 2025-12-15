@@ -10,8 +10,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 const navigation = [
   { name: "Overview", href: "/", icon: LayoutDashboard },
   { name: "Branch Performance", href: "/branch-data", icon: TrendingUp },
-  { name: "Banking Log", href: "/banking-data", icon: BarChart3 },
-  { name: "Filters and validation", href: "/validation-filtering", icon: Filter },
+  { name: "Banking Records", href: "/all-records", icon: BarChart3 },
+  { name: "valid-invalid", href: "/valid-ivalid", icon: Filter },
 ];
 
 export function Sidebar() {

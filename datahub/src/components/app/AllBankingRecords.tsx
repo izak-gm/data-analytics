@@ -102,11 +102,11 @@ export default function BankingTransactionCard() {
                     <TableCell>{txn.transaction_id}</TableCell>
                     <TableCell>{formatDate(txn.transaction_date)}</TableCell>
                     <TableCell>{txn.transaction_type}</TableCell>
+                    <TableCell>{parseAmount(txn.account_balance)}</TableCell>
+                    <TableCell>{parseAmount(txn.transaction_amount)}</TableCell>
                     <TableCell>
                       {txn.account_balance_after_transaction}
                     </TableCell>
-                    <TableCell>{parseAmount(txn.transaction_amount)}</TableCell>
-                    <TableCell>{parseAmount(txn.account_balance)}</TableCell>
                     <TableCell>{txn.age}</TableCell>
                     <TableCell>{normalizeGender(txn.gender)}</TableCell>
                     <TableCell>{txn.account_type}</TableCell>
